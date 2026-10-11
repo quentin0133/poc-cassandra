@@ -1,0 +1,30 @@
+services:
+  cassandra-1:
+    image: cassandra:latest
+    container_name: cassandra-node1
+    environment:
+      - CASSANDRA_CLUSTER_NAME=poc_cluster
+      - CASSANDRA_SEEDS=cassandra-1
+      - MAX_HEAP_SIZE=1024M
+      - HEAP_NEWSIZE=256M
+    ports:
+      - "9042:9042"
+    networks:
+      - cassandra-net
+
+  cassandra-2:
+    image: cassandra:latest
+    container_name: cassandra-node2
+    environment:
+      - CASSANDRA_CLUSTER_NAME=poc_cluster
+      - CASSANDRA_SEEDS=cassandra-1
+      - MAX_HEAP_SIZE=1024M
+      - HEAP_NEWSIZE=256M
+    depends_on:
+      - cassandra-1
+    networks:
+      - cassandra-net
+
+networks:
+  cassandra-net:
+    driver: bridge
