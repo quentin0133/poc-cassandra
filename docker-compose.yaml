@@ -6,11 +6,16 @@ services:
       - CASSANDRA_CLUSTER_NAME=poc_cluster
       - CASSANDRA_SEEDS=cassandra-1
       - MAX_HEAP_SIZE=1024M
-      - HEAP_NEWSIZE=256M
     ports:
       - "9042:9042"
     networks:
       - cassandra-net
+    healthcheck:
+      test: ["CMD", "cqlsh", "-e", "SELECT now() FROM system.local;"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 45s
 
   cassandra-2:
     image: cassandra:latest
@@ -19,9 +24,47 @@ services:
       - CASSANDRA_CLUSTER_NAME=poc_cluster
       - CASSANDRA_SEEDS=cassandra-1
       - MAX_HEAP_SIZE=1024M
-      - HEAP_NEWSIZE=256M
     depends_on:
-      - cassandra-1
+      cassandra-1:
+        condition: service_healthy
+    networks:
+      - cassandra-net
+    healthcheck:
+      test: ["CMD", "cqlsh", "-e", "SELECT now() FROM system.local;"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 45s
+
+  cassandra-3:
+    image: cassandra:latest
+    container_name: cassandra-node3
+    environment:
+      - CASSANDRA_CLUSTER_NAME=poc_cluster
+      - CASSANDRA_SEEDS=cassandra-1
+      - MAX_HEAP_SIZE=1024M
+    depends_on:
+      cassandra-2:
+        condition: service_healthy
+    networks:
+      - cassandra-net
+    healthcheck:
+      test: ["CMD", "cqlsh", "-e", "SELECT now() FROM system.local;"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 45s
+  
+  cassandra-4:
+    image: cassandra:latest
+    container_name: cassandra-node4
+    environment:
+      - CASSANDRA_CLUSTER_NAME=poc_cluster
+      - CASSANDRA_SEEDS=cassandra-1
+      - MAX_HEAP_SIZE=1024M
+    depends_on:
+      cassandra-3:
+        condition: service_healthy
     networks:
       - cassandra-net
 

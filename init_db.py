@@ -19,7 +19,7 @@ session.execute("DROP KEYSPACE IF EXISTS football")
 
 session.execute("""
     CREATE KEYSPACE football
-    WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1};
+    WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 3};
 """)
 session.set_keyspace('football')
 
