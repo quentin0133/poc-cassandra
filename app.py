@@ -5,14 +5,18 @@ import pandas as pd
 from cassandra.cluster import Cluster
 import plotly.express as px
 
+from timeline import render_timeline, tableau_score
+
 cluster = Cluster(['127.0.0.1'], port=9042)
 session = cluster.connect('football')
 
 events_stmt = session.prepare("""
-    SELECT time, event_team, player, text, is_goal
+    SELECT time, event_type, side, player, player_in, player_out, text, is_goal
     FROM events
     WHERE id_odsp = ?
 """)
+
+LIVE_ID = "LIVE-CzPV312a/"
 
 LOCATION_MAP = {
     1: "Moitié d'attaque", 2: "Moitié défensive", 3: "Centre de la surface",
@@ -46,44 +50,40 @@ def load_matches():
 
 app = dash.Dash(__name__)
 
-app.layout = html.Div(style={'fontFamily': 'sans-serif', 'maxWidth': '1100px', 'margin': 'auto', 'padding': '20px'}, children=[
+app.layout = html.Div(className="page", children=[
+    html.H1("MatchLive", className="app-title"),
     html.Div(
-        id="bench-metric",
-        style={
-            'display': 'inline-block',
-            'padding': '10px 18px',
-            'backgroundColor': '#f8f9fa',
-            'border': '1px solid #ced4da',
-            'borderRadius': '6px',
-            'fontWeight': 'bold',
-            'marginBottom': '20px',
-            'color': '#495057'
-        },
-        children="Temps d'exécution : initialisation..."
+        html.Div(id="bench-metric", className="metric",
+        children="Temps d'exécution : initialisation..."),
     ),
     
-    dcc.Tabs(id="tabs-menu", value="tab-dashboard", children=[
-        dcc.Tab(label="Dashboard", value="tab-dashboard"),
-        dcc.Tab(label="Événements par match", value="tab-match")
+    dcc.Tabs(id="tabs-menu", value="tab-dashboard", className="tabs", children=[
+        dcc.Tab(label="Dashboard", value="tab-dashboard",
+                className="tab", selected_className="tab-selected"),
+        dcc.Tab(label="Événements par match", value="tab-match",
+                className="tab", selected_className="tab-selected"),
+        dcc.Tab(label="Direct", value="tab-live",
+                className="tab", selected_className="tab-selected", children=[
+            html.Div(className="card", style={'marginTop': '20px'}, children=[
+                html.Div(id="live-container"),
+            ]),
+            dcc.Interval(id="refresh", interval=2000),
+        ]),
     ]),
     
     html.Div(id="view-dashboard", style={'paddingTop': '20px'}, children=[
-        html.H2("Vue globale"),
         html.Div(id="dashboard-content")
     ]),
     
-    html.Div(id="view-match", style={'paddingTop': '20px', 'display': 'none'}, children=[
-        html.Label("Sélectionnez un match :", style={'fontWeight': 'bold'}),
-        dcc.Dropdown(
-            id='match-selector',
-            options=[],
-            value=None,
-            clearable=False,
-            style={'marginBottom': '20px'}
-        ),
-        html.H3("Chronologie des événements"),
-        html.Div(id='events-container')
-    ])
+    html.Div(id="view-match", style={'display': 'none'}, children=[
+        html.Div(className="card", style={'marginTop': '20px'}, children=[
+            dcc.Dropdown(id='match-selector', options=[], value=None, clearable=False),
+        ]),
+        html.Div(className="card", children=[
+            html.H3("Événements", className="card-title"),
+            html.Div(id='events-container'),
+        ]),
+    ]),
 ])
 
 @app.callback(
@@ -112,15 +112,10 @@ def switch_tabs(active_tab, selected_id_odsp):
         return style_dash, style_match, dash_content, dash.no_update, metric_text, dash.no_update, dash.no_update
     
     if active_tab == "tab-match":
-        if not dropdown_options:
-            opts = load_matches()
-            id_odsp = opts[0]['value'] if opts else None
-            match_content, metric_text = update_match(id_odsp)
-            return style_dash, style_match, dash.no_update, match_content, metric_text, opts, id_odsp
-
-        id_odsp = selected_id_odsp or dropdown_options[0]['value']
+        opts = load_matches()
+        id_odsp = selected_id_odsp or opts[0]['value']
         match_content, metric_text = update_match(id_odsp)
-        return style_dash, style_match, dash.no_update, match_content, metric_text, dash.no_update, dash.no_update
+        return style_dash, style_match, dash.no_update, match_content, metric_text, opts, id_odsp
     
     return style_dash, style_match, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
     
@@ -129,15 +124,7 @@ def update_dashboard():
     graphic_functions = [get_top_10_player, get_goal_by_position]
     total_query_time = 0
     
-    dashboard_layout = html.Div(
-        style={
-            'display': 'grid',
-            'gridTemplateColumns': '1fr 1fr',
-            'gap': '20px',
-            'alignItems': 'start'
-        },
-        children=[]
-    )
+    dashboard_layout = html.Div(className="dashboard-grid", children=[])
     
     for graphic_function in graphic_functions:
         (comp, query_time) = graphic_function()
@@ -187,9 +174,19 @@ def get_goal_by_position():
         hole=0.4
     )
     fig.update_traces(textinfo='none', hovertemplate="<b>%{label}</b><br>Buts : %{value}<br>Part : %{percent}")
+
+    fig.update_layout(
+        template="plotly_dark",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font_family="Barlow, sans-serif",
+        title=None,
+        margin=dict(t=10, b=10, l=10, r=10),
+    )
     
-    component = html.Div(children=[
-        dcc.Graph(figure=fig)
+    component = html.Div(className="card", children=[
+        html.H3("Buts par position", className="card-title"),
+        dcc.Graph(figure=fig, config={'displayModeBar': False}),
     ])
     
     return component, query_time
@@ -207,16 +204,24 @@ def get_top_10_player():
 
     top_10 = df.nlargest(10, 'total_goals')
     
-    component = html.Div(children=[
-        html.H3("Top 10 des joueurs"),
+    top_10['player'] = top_10['player'].str.title()
+
+    component = html.Div(className="card", children=[
+        html.H3("Top 10 des buteurs", className="card-title"),
         dash_table.DataTable(
             data=top_10.to_dict('records'),
             columns=[
                 {"name": "Joueur", "id": "player"},
-                {"name": "Total Buts", "id": "total_goals"}
+                {"name": "Buts", "id": "total_goals"}
             ],
-            style_header={'backgroundColor': '#f2f2f2', 'fontWeight': 'bold'},
-            style_cell={'textAlign': 'left', 'padding': '8px'}
+            style_as_list_view=True,
+            style_header={'backgroundColor': '#1d1d1d', 'color': '#9a9a9a',
+                          'fontWeight': '600', 'border': 'none',
+                          'borderBottom': '1px solid #333333'},
+            style_cell={'backgroundColor': '#1d1d1d', 'color': '#f5f5f5',
+                        'fontFamily': 'Barlow, sans-serif', 'fontSize': '15px',
+                        'textAlign': 'left', 'padding': '10px', 'border': 'none',
+                        'borderBottom': '1px solid #333333'},
         )
     ])
     
@@ -227,33 +232,21 @@ def update_match(selected_id_odsp):
         return html.P("Veuillez sélectionner un match."), "Temps d'exécution : -- ms"
 
     start_time = time.perf_counter()
-    rows = session.execute(events_stmt, [selected_id_odsp])
+    rows = list(session.execute(events_stmt, [selected_id_odsp]))
     query_time_ms = round((time.perf_counter() - start_time) * 1000, 2)
 
-    df_events = pd.DataFrame(list(rows))
+    metric_text = f"Temps d'exécution : {query_time_ms} ms"
+    return render_timeline(rows), metric_text
 
-    metric_text = f"Temps d'exécution : {round(query_time_ms, 2)} ms"
+@app.callback(Output("live-container", "children"), Input("refresh", "n_intervals"))
+def afficher_direct(n_intervals):
+    match = session.execute("SELECT ht, at, fthg, ftag FROM matches WHERE id_odsp = %s",
+                            [LIVE_ID]).one()
+    if match is None:
+        return html.P("Aucun match en direct. Lance replay.py.", className="tl-empty")
 
-    if df_events.empty:
-        return html.P("Aucun événement pour ce match."), metric_text
-
-    df_events['is_goal'] = df_events['is_goal'].apply(lambda x: "⚽ BUT !" if x == 1 else "")
-    df_events.rename(columns={
-        'time': 'Minute',
-        'event_team': 'Équipe',
-        'player': 'Joueur',
-        'text': 'Description',
-        'is_goal': 'But'
-    }, inplace=True)
-
-    table = dash_table.DataTable(
-        data=df_events.to_dict('records'),
-        columns=[{"name": col, "id": col} for col in df_events.columns],
-        page_size=15,
-        style_table={'overflowX': 'auto'}
-    )
-
-    return table, metric_text
+    rows = list(session.execute(events_stmt, [LIVE_ID]))
+    return [tableau_score(match, rows), render_timeline(rows)]
     
 if __name__ == '__main__':
     app.run(debug=True)
