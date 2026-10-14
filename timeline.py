@@ -66,13 +66,8 @@ def render_timeline(events):
         return html.P("Aucun événement marquant pour ce match.", className="tl-empty")
     return html.Div(className="timeline", children=lignes)
 
-def tableau_score(match, events):
-    minute = events[-1].time if events else 0
+def tableau_score(match):
     return html.Div(className="sb", children=[
-        html.Div(className="sb-live", children=[
-            html.Span(className="sb-dot"),
-            html.Span(f"En direct · {minute}'"),
-        ]),
         html.Div(className="sb-line", children=[
             html.Span(match.ht, className="sb-team sb-home"),
             html.Span(f"{match.fthg} - {match.ftag}", className="sb-score"),

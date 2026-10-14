@@ -1,6 +1,7 @@
 import time
+from datetime import timezone
 import dash
-from dash import html, dcc, dash_table, Input, Output, ctx
+from dash import html, dcc, dash_table, Input, Output, State, ctx
 import pandas as pd
 from cassandra.cluster import Cluster
 import plotly.express as px
@@ -17,6 +18,7 @@ events_stmt = session.prepare("""
 """)
 
 LIVE_ID = "LIVE-CzPV312a/"
+SECONDES_PAR_MINUTE = 2
 
 LOCATION_MAP = {
     1: "Moitié d'attaque", 2: "Moitié défensive", 3: "Centre de la surface",
@@ -65,9 +67,14 @@ app.layout = html.Div(className="page", children=[
         dcc.Tab(label="Direct", value="tab-live",
                 className="tab", selected_className="tab-selected", children=[
             html.Div(className="card", style={'marginTop': '20px'}, children=[
+                html.Div(className="sb-head", children=html.Div(
+                    id="live-badge", className="sb-live", style={'display': 'none'},
+                    children=[html.Span(className="sb-dot"), html.Span(id="live-clock")])),
                 html.Div(id="live-container"),
             ]),
+            dcc.Store(id="live-start"),
             dcc.Interval(id="refresh", interval=2000),
+            dcc.Interval(id="clock-tick", interval=1000),
         ]),
     ]),
     
@@ -238,15 +245,32 @@ def update_match(selected_id_odsp):
     metric_text = f"Temps d'exécution : {query_time_ms} ms"
     return render_timeline(rows), metric_text
 
-@app.callback(Output("live-container", "children"), Input("refresh", "n_intervals"))
+@app.callback(Output("live-container", "children"), Output("live-start", "data"),
+              Input("refresh", "n_intervals"))
 def afficher_direct(n_intervals):
-    match = session.execute("SELECT ht, at, fthg, ftag FROM matches WHERE id_odsp = %s",
+    match = session.execute("SELECT ht, at, fthg, ftag, live_start FROM matches WHERE id_odsp = %s",
                             [LIVE_ID]).one()
     if match is None:
-        return html.P("Aucun match en direct. Lance replay.py.", className="tl-empty")
+        return html.P("Aucun match en direct. Lance replay.py.", className="tl-empty"), None
 
     rows = list(session.execute(events_stmt, [LIVE_ID]))
-    return [tableau_score(match, rows), render_timeline(rows)]
+    debut = match.live_start.replace(tzinfo=timezone.utc).timestamp() * 1000 if match.live_start else None
+    return [tableau_score(match), render_timeline(rows)], {"start": debut, "spm": SECONDES_PAR_MINUTE}
+
+app.clientside_callback(
+    """
+    function(n, live) {
+        if (!live) { return ["", {display: "none"}]; }
+        if (!live.start) { return ["En direct", {}]; }
+        const m = Math.floor((Date.now() - live.start) / 1000 / live.spm);
+        return ["En direct · " + (m > 90 ? "90'+" : Math.max(0, m) + "'"), {}];
+    }
+    """,
+    Output("live-clock", "children"),
+    Output("live-badge", "style"),
+    Input("clock-tick", "n_intervals"),
+    State("live-start", "data"),
+)
     
 if __name__ == '__main__':
     app.run(debug=True)

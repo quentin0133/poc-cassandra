@@ -36,7 +36,8 @@ tables = [
         ht text,
         at text,
         fthg int,
-        ftag int
+        ftag int,
+        live_start timestamp
     );
     """,
     """

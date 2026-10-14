@@ -172,6 +172,7 @@ body {
 }
 
 /* Tableau de score du direct */
+.sb-head { text-align: center; }
 .sb { text-align: center; padding-bottom: 20px; margin-bottom: 20px; border-bottom: 1px solid var(--line); }
 .sb-live {
   display: inline-flex;

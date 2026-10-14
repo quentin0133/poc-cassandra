@@ -1,12 +1,12 @@
 from cassandra.cluster import Cluster
 import time
+from datetime import datetime, timezone
 
 cluster = Cluster(['127.0.0.1'], port=9042)
 session = cluster.connect('football')
 
 MATCH_ID = "CzPV312a/"
-SECONDES_PAR_MINUTE = 5
-minute_precedente = 0
+SECONDES_PAR_MINUTE = 2
 
 match = session.execute("SELECT * FROM matches WHERE id_odsp = %s", [MATCH_ID]).one()
 print(f"{match.ht} vs {match.at}")
@@ -19,11 +19,12 @@ TTL = 6000
 
 session.execute("DELETE FROM events WHERE id_odsp = %s", [LIVE_ID])
 
+debut = time.time()
 session.execute(
-    f"INSERT INTO matches (id_odsp, ht, at, match_date, season, league, country, fthg, ftag) "
-    f"VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) USING TTL {TTL}",
+    f"INSERT INTO matches (id_odsp, ht, at, match_date, season, league, country, fthg, ftag, live_start) "
+    f"VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) USING TTL {TTL}",
     [LIVE_ID, match.ht, match.at, match.match_date, match.season,
-     match.league, match.country, 0, 0],
+     match.league, match.country, 0, 0, datetime.fromtimestamp(debut, timezone.utc)],
 )
 print("Match live créé :", LIVE_ID)
 
@@ -39,9 +40,7 @@ update_score = session.prepare(
 score_dom, score_ext = 0, 0
 
 for e in events:
-    attente = (e.time - minute_precedente) * SECONDES_PAR_MINUTE
-    time.sleep(max(0, attente))
-    minute_precedente = e.time
+    time.sleep(max(0, debut + e.time * SECONDES_PAR_MINUTE - time.time()))
     session.execute(insert_event, [LIVE_ID, e.sort_order, e.id_event, e.time, e.event_type,
                                    e.side, e.event_team, e.player, e.player_in, e.player_out,
                                    e.text, e.is_goal])
